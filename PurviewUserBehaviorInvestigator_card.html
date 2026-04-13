@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Security Copilot Plugin Card</title>
+  <style>
+    :root {
+      --primary: #0078D4;
+      --primary-dark: #005A9E;
+      --accent: #50E6FF;
+      --bg: #F5F5F5;
+      --card-bg: #FFFFFF;
+      --text: #323130;
+      --text-secondary: #605E5C;
+      --border: #E1DFDD;
+      --badge-kql: #0E7A0D;
+      --badge-api: #C239B3;
+      --badge-gpt: #E74C3C;
+      --badge-logicapp: #0072C6;
+      --badge-mcp: #FF8C00;
+      --badge-agent: #107C10;
+      --badge-none: #605E5C;
+      --badge-apikey: #8764B8;
+      --badge-basic: #CA5010;
+      --badge-aad: #0078D4;
+      --badge-oauth: #038387;
+      --shadow: 0 2px 8px rgba(0,0,0,0.08);
+      --shadow-lg: 0 4px 16px rgba(0,0,0,0.12);
+      --radius: 8px;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      padding: 32px;
+    }
+
+    .container { max-width: 960px; margin: 0 auto; }
+
+    .plugin-header {
+      background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+      color: white;
+      padding: 32px 40px;
+      border-radius: var(--radius) var(--radius) 0 0;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .plugin-header::after {
+      content: '';
+      position: absolute;
+      top: -40px;
+      right: -40px;
+      width: 200px;
+      height: 200px;
+      background: rgba(255,255,255,0.05);
+      border-radius: 50%;
+    }
+
+    .plugin-header .type-label {
+      display: inline-block;
+      background: rgba(255,255,255,0.2);
+      padding: 4px 14px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 12px;
+    }
+
+    .plugin-header h1 { font-size: 28px; font-weight: 700; margin-bottom: 4px; }
+
+    .plugin-header .internal-name {
+      font-size: 13px;
+      opacity: 0.75;
+      font-family: 'Cascadia Code', 'Fira Code', monospace;
+      margin-bottom: 12px;
+    }
+
+    .plugin-header .description { font-size: 15px; opacity: 0.9; max-width: 700px; }
+
+    .meta-bar {
+      background: var(--card-bg);
+      border-left: 1px solid var(--border);
+      border-right: 1px solid var(--border);
+      padding: 16px 40px;
+      display: flex;
+      gap: 32px;
+      flex-wrap: wrap;
+      align-items: center;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .meta-item { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-secondary); }
+    .meta-item strong { color: var(--text); font-weight: 600; }
+    .meta-item .icon { width: 18px; height: 18px; display: flex; align-items: center; justify-content: center; }
+
+    .auth-badge {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; color: white;
+    }
+    .auth-none { background: var(--badge-none); }
+
+    .content {
+      background: var(--card-bg);
+      border-left: 1px solid var(--border);
+      border-right: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      border-radius: 0 0 var(--radius) var(--radius);
+      padding: 32px 40px;
+    }
+
+    .section-title {
+      font-size: 18px; font-weight: 700; color: var(--primary);
+      margin-bottom: 16px; display: flex; align-items: center; gap: 8px;
+      padding-bottom: 8px; border-bottom: 2px solid var(--primary);
+    }
+
+    .skill-group { margin-bottom: 28px; }
+
+    .skill-group-header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+
+    .format-badge {
+      display: inline-block; padding: 4px 12px; border-radius: 4px;
+      font-size: 12px; font-weight: 700; color: white;
+      text-transform: uppercase; letter-spacing: 0.5px;
+    }
+    .format-kql { background: var(--badge-kql); }
+    .format-agent { background: var(--badge-agent); }
+
+    .skill-group-header .group-info { font-size: 13px; color: var(--text-secondary); }
+
+    .skill-card {
+      background: var(--bg); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 16px 20px; margin-bottom: 10px;
+    }
+
+    .skill-card .skill-name { font-size: 15px; font-weight: 600; color: var(--text); }
+    .skill-card .skill-internal {
+      font-size: 12px; color: var(--text-secondary);
+      font-family: 'Cascadia Code', 'Fira Code', monospace; margin-bottom: 6px;
+    }
+    .skill-card .skill-desc { font-size: 13px; color: var(--text-secondary); margin-bottom: 10px; }
+
+    .inputs-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; }
+    .inputs-table th {
+      text-align: left; padding: 6px 10px; background: var(--card-bg);
+      border-bottom: 2px solid var(--border); color: var(--text-secondary);
+      font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;
+    }
+    .inputs-table td { padding: 6px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    .inputs-table .param-name {
+      font-family: 'Cascadia Code', 'Fira Code', monospace;
+      font-weight: 600; color: var(--primary-dark); white-space: nowrap;
+    }
+    .required-marker { color: #D13438; font-weight: 700; margin-left: 2px; }
+
+    .agent-section { margin-top: 28px; }
+
+    .agent-info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
+
+    .agent-info-item {
+      background: var(--bg); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 14px 18px;
+    }
+    .agent-info-item .label {
+      font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;
+      color: var(--text-secondary); font-weight: 600; margin-bottom: 4px;
+    }
+    .agent-info-item .value { font-size: 14px; color: var(--text); font-weight: 500; }
+
+    .child-skills-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+    .child-skill-tag {
+      background: #E8F0FE; color: var(--primary-dark); padding: 4px 12px;
+      border-radius: 16px; font-size: 13px; font-weight: 500;
+      font-family: 'Cascadia Code', 'Fira Code', monospace; border: 1px solid #C7DDFB;
+    }
+
+    .settings-section { margin-top: 28px; }
+    .settings-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; }
+    .settings-table th {
+      text-align: left; padding: 6px 10px; background: var(--bg);
+      border-bottom: 2px solid var(--border); color: var(--text-secondary);
+      font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;
+    }
+    .settings-table td { padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    .settings-table .setting-name {
+      font-family: 'Cascadia Code', 'Fira Code', monospace;
+      font-weight: 600; color: var(--primary-dark); white-space: nowrap;
+    }
+    .req-badge {
+      display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600;
+    }
+    .req-yes { background: #FDE7E9; color: #A4262C; }
+    .req-no  { background: #E8F5E9; color: #107C10; }
+
+    .card-footer {
+      text-align: center; padding: 20px; font-size: 12px; color: var(--text-secondary); margin-top: 8px;
+    }
+    .card-footer a { color: var(--primary); text-decoration: none; }
+
+    @media (max-width: 680px) {
+      body { padding: 12px; }
+      .plugin-header, .meta-bar, .content { padding-left: 20px; padding-right: 20px; }
+      .agent-info-grid { grid-template-columns: 1fr; }
+      .meta-bar { flex-direction: column; gap: 12px; align-items: flex-start; }
+    }
+  </style>
+</head>
+<body>
+<div class="container">
+
+  <!-- Header -->
+  <div class="plugin-header">
+    <div class="type-label">Agent</div>
+    <h1>Purview User Behavior Investigator</h1>
+    <div class="internal-name">PurviewUserBehaviorInvestigator</div>
+    <div class="description">
+      Microsoft Purview の DLP/IRM アラート発砲後に、対象ユーザーの行動履歴を調査するカスタムエージェントです。
+      ユーザー UPN とオプションのアラート情報を受け取り、アラート前後1週間の Exchange/Teams・メール・クラウドアプリ利用状況を
+      Sentinel および Defender から収集・分析し、社外通信パターンと不審なクラウドストレージ利用を含む事実ベースの Markdown 行動調査レポートを生成します。
+    </div>
+  </div>
+
+  <!-- Meta bar -->
+  <div class="meta-bar">
+    <div class="meta-item">
+      <span class="icon">🔧</span>
+      <span>Skills: <strong>4</strong></span>
+    </div>
+    <div class="meta-item">
+      <span class="icon">📦</span>
+      <span>Skill Groups: <strong>2</strong></span>
+    </div>
+    <div class="meta-item">
+      <span class="icon">📐</span>
+      <span>Formats: <strong>Agent, KQL</strong></span>
+    </div>
+    <div class="meta-item">
+      <span class="icon">🗄️</span>
+      <span>Data Sources: <strong>Sentinel, Defender XDR</strong></span>
+    </div>
+    <div class="meta-item">
+      <span class="icon">🔒</span>
+      <span>Auth: </span>
+      <span class="auth-badge auth-none">None</span>
+    </div>
+  </div>
+
+  <!-- Content -->
+  <div class="content">
+
+    <!-- Plugin Settings -->
+    <div class="settings-section">
+      <div class="section-title"><span>⚙️</span> Plugin Settings（Sentinel ワークスペース設定）</div>
+      <table class="settings-table">
+        <thead>
+          <tr><th>設定名</th><th>ラベル</th><th>説明</th><th>必須</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="setting-name">SentinelTenantId</td>
+            <td>Sentinel Tenant ID</td>
+            <td>Microsoft Sentinel ワークスペースが属する Azure AD テナント ID</td>
+            <td><span class="req-badge req-yes">必須</span></td>
+          </tr>
+          <tr>
+            <td class="setting-name">SentinelSubscriptionId</td>
+            <td>Sentinel Subscription ID</td>
+            <td>Microsoft Sentinel ワークスペースが属する Azure サブスクリプション ID</td>
+            <td><span class="req-badge req-yes">必須</span></td>
+          </tr>
+          <tr>
+            <td class="setting-name">SentinelResourceGroupName</td>
+            <td>Sentinel Resource Group Name</td>
+            <td>Microsoft Sentinel ワークスペースが属するリソースグループ名</td>
+            <td><span class="req-badge req-yes">必須</span></td>
+          </tr>
+          <tr>
+            <td class="setting-name">SentinelWorkspaceName</td>
+            <td>Sentinel Workspace Name</td>
+            <td>Microsoft Sentinel ワークスペース名</td>
+            <td><span class="req-badge req-yes">必須</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Skill Groups -->
+    <div style="margin-top: 32px;">
+      <div class="section-title"><span>⚡</span> Skills</div>
+
+      <!-- Agent SkillGroup -->
+      <div class="skill-group">
+        <div class="skill-group-header">
+          <span class="format-badge format-agent">Agent</span>
+          <span class="group-info">1 skill — Orchestration</span>
+        </div>
+        <div class="skill-card">
+          <div class="skill-name">Investigate User Behavior After DLP/IRM Alert</div>
+          <div class="skill-internal">InvestigateUserBehavior</div>
+          <div class="skill-desc">
+            DLP/IRM アラートのトリガーとなったユーザーについて、アラート前後1週間の行動履歴を
+            Sentinel と Defender から収集・分析し、事実に基づいた Markdown 形式の行動調査レポートを生成します。
+          </div>
+          <table class="inputs-table">
+            <thead>
+              <tr><th>パラメータ</th><th>説明</th><th>必須</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="param-name">TargetUserUPN<span class="required-marker">*</span></td>
+                <td>調査対象ユーザーの UPN（例: user@contoso.com）</td>
+                <td>Yes</td>
+              </tr>
+              <tr>
+                <td class="param-name">AlertDateTime</td>
+                <td>DLP/IRM アラートの発生日時（ISO 8601 形式）。省略した場合は現在日時基準で過去14日間を調査</td>
+                <td>No</td>
+              </tr>
+              <tr>
+                <td class="param-name">AlertInfo</td>
+                <td>DLP/IRM アラートの詳細情報（ポリシー名、重大度、トリガーとなった操作など）</td>
+                <td>No</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- KQL SkillGroup -->
+      <div class="skill-group">
+        <div class="skill-group-header">
+          <span class="format-badge format-kql">KQL</span>
+          <span class="group-info">3 skills — Sentinel + Defender XDR</span>
+        </div>
+
+        <!-- GetOfficeActivityForUser -->
+        <div class="skill-card">
+          <div class="skill-name">Get Office Activity for User</div>
+          <div class="skill-internal">GetOfficeActivityForUser</div>
+          <div class="skill-desc">
+            Sentinel の OfficeActivity テーブルから、指定ユーザーの
+            Exchange・MicrosoftTeams・SharePoint・OneDrive アクティビティを取得します。
+            外部アクセス（ExternalAccess=true）の操作を含む全ワークロードの行動ログを返します。
+            <br><strong style="color: var(--badge-kql);">Target: Sentinel</strong>
+            &nbsp;|&nbsp; Table: <code>OfficeActivity</code>
+          </div>
+          <table class="inputs-table">
+            <thead>
+              <tr><th>パラメータ</th><th>説明</th><th>必須</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="param-name">TargetUserUPN<span class="required-marker">*</span></td>
+                <td>調査対象ユーザーの UPN</td>
+                <td>Yes</td>
+              </tr>
+              <tr>
+                <td class="param-name">StartDateTime<span class="required-marker">*</span></td>
+                <td>調査開始日時（ISO 8601 形式）</td>
+                <td>Yes</td>
+              </tr>
+              <tr>
+                <td class="param-name">EndDateTime<span class="required-marker">*</span></td>
+                <td>調査終了日時（ISO 8601 形式）</td>
+                <td>Yes</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- GetEmailEventsForUser -->
+        <div class="skill-card">
+          <div class="skill-name">Get Email Events for User</div>
+          <div class="skill-internal">GetEmailEventsForUser</div>
+          <div class="skill-desc">
+            Defender XDR の EmailEvents テーブルから、指定ユーザーが送信したメールの履歴を取得します。
+            送信先アドレス、件名、添付ファイルの有無、脅威検知状況を含む送信メール一覧を返します。
+            <br><strong style="color: var(--badge-kql);">Target: Defender</strong>
+            &nbsp;|&nbsp; Table: <code>EmailEvents</code>
+          </div>
+          <table class="inputs-table">
+            <thead>
+              <tr><th>パラメータ</th><th>説明</th><th>必須</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="param-name">TargetUserUPN<span class="required-marker">*</span></td>
+                <td>調査対象ユーザーの UPN</td>
+                <td>Yes</td>
+              </tr>
+              <tr>
+                <td class="param-name">StartDateTime<span class="required-marker">*</span></td>
+                <td>調査開始日時（ISO 8601 形式）</td>
+                <td>Yes</td>
+              </tr>
+              <tr>
+                <td class="param-name">EndDateTime<span class="required-marker">*</span></td>
+                <td>調査終了日時（ISO 8601 形式）</td>
+                <td>Yes</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- GetCloudAppUsageForUser -->
+        <div class="skill-card">
+          <div class="skill-name">Get Cloud App Usage for User</div>
+          <div class="skill-internal">GetCloudAppUsageForUser</div>
+          <div class="skill-desc">
+            Defender XDR の CloudAppEvents テーブルから、指定ユーザーのクラウドアプリ利用状況をアプリ別に集計して返します。
+            外部クラウドストレージサービス（Dropbox, Google Drive, Box 等）の利用検出と、
+            アクセス元の国情報・使用デバイス情報を含みます。
+            <br><strong style="color: var(--badge-kql);">Target: Defender</strong>
+            &nbsp;|&nbsp; Table: <code>CloudAppEvents</code>
+          </div>
+          <table class="inputs-table">
+            <thead>
+              <tr><th>パラメータ</th><th>説明</th><th>必須</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="param-name">TargetUserUPN<span class="required-marker">*</span></td>
+                <td>調査対象ユーザーの UPN</td>
+                <td>Yes</td>
+              </tr>
+              <tr>
+                <td class="param-name">StartDateTime<span class="required-marker">*</span></td>
+                <td>調査開始日時（ISO 8601 形式）</td>
+                <td>Yes</td>
+              </tr>
+              <tr>
+                <td class="param-name">EndDateTime<span class="required-marker">*</span></td>
+                <td>調査終了日時（ISO 8601 形式）</td>
+                <td>Yes</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Agent Configuration -->
+    <div class="agent-section">
+      <div class="section-title"><span>🤖</span> Agent Configuration</div>
+      <div class="agent-info-grid">
+        <div class="agent-info-item">
+          <div class="label">Agent Name</div>
+          <div class="value">Purview User Behavior Investigator Agent</div>
+        </div>
+        <div class="agent-info-item">
+          <div class="label">Internal Name</div>
+          <div class="value" style="font-family: monospace;">PurviewUserBehaviorInvestigatorAgent</div>
+        </div>
+        <div class="agent-info-item">
+          <div class="label">Publisher</div>
+          <div class="value">Custom</div>
+        </div>
+        <div class="agent-info-item">
+          <div class="label">Model</div>
+          <div class="value">gpt-4o</div>
+        </div>
+        <div class="agent-info-item">
+          <div class="label">Constraint</div>
+          <div class="value">None（複数ユーザーを並行調査可能）</div>
+        </div>
+        <div class="agent-info-item">
+          <div class="label">Trigger</div>
+          <div class="value">ManualInvestigation（手動実行）</div>
+        </div>
+        <div class="agent-info-item">
+          <div class="label">Poll Period</div>
+          <div class="value">0 s（手動トリガーのみ）</div>
+        </div>
+        <div class="agent-info-item">
+          <div class="label">Process Skill</div>
+          <div class="value" style="font-family: monospace; font-size: 12px;">PurviewUserBehaviorInvestigator.InvestigateUserBehavior</div>
+        </div>
+      </div>
+
+      <!-- Child Skills -->
+      <div style="margin-top: 16px;">
+        <h4 style="font-size: 14px; color: var(--text-secondary); margin-bottom: 8px;">Child Skills</h4>
+        <div class="child-skills-list">
+          <span class="child-skill-tag">GetOfficeActivityForUser</span>
+          <span class="child-skill-tag">GetEmailEventsForUser</span>
+          <span class="child-skill-tag">GetCloudAppUsageForUser</span>
+        </div>
+      </div>
+
+      <!-- Required Skillsets -->
+      <div style="margin-top: 16px;">
+        <h4 style="font-size: 14px; color: var(--text-secondary); margin-bottom: 8px;">Required Skillsets</h4>
+        <div class="child-skills-list">
+          <span class="child-skill-tag">PurviewUserBehaviorInvestigator</span>
+        </div>
+      </div>
+
+      <!-- Workflow Summary -->
+      <div style="margin-top: 24px;">
+        <div class="section-title" style="font-size: 15px; border-bottom: 1px solid var(--border);"><span>📋</span> 調査ワークフロー</div>
+        <table style="width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 12px;">
+          <thead>
+            <tr style="background: var(--bg);">
+              <th style="padding: 8px 12px; text-align: left; border-bottom: 2px solid var(--border); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-secondary);">Phase</th>
+              <th style="padding: 8px 12px; text-align: left; border-bottom: 2px solid var(--border); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-secondary);">呼び出しスキル</th>
+              <th style="padding: 8px 12px; text-align: left; border-bottom: 2px solid var(--border); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-secondary);">データソース</th>
+              <th style="padding: 8px 12px; text-align: left; border-bottom: 2px solid var(--border); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-secondary);">調査内容</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td style="padding: 8px 12px; border-bottom: 1px solid var(--border); font-weight: 600;">Phase 1</td>
+              <td style="padding: 8px 12px; border-bottom: 1px solid var(--border); font-family: monospace; font-size: 12px;">GetOfficeActivityForUser</td>
+              <td style="padding: 8px 12px; border-bottom: 1px solid var(--border);">Sentinel OfficeActivity</td>
+              <td style="padding: 8px 12px; border-bottom: 1px solid var(--border);">Exchange / Teams / SharePoint / OneDrive のアクティビティ・外部アクセス操作</td>
+            </tr>
+            <tr style="background: #FAFAFA;">
+              <td style="padding: 8px 12px; border-bottom: 1px solid var(--border); font-weight: 600;">Phase 2</td>
+              <td style="padding: 8px 12px; border-bottom: 1px solid var(--border); font-family: monospace; font-size: 12px;">GetEmailEventsForUser</td>
+              <td style="padding: 8px 12px; border-bottom: 1px solid var(--border);">Defender EmailEvents</td>
+              <td style="padding: 8px 12px; border-bottom: 1px solid var(--border);">外部ドメインへの送信メール・添付ファイル・脅威検知</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 12px; border-bottom: 1px solid var(--border); font-weight: 600;">Phase 3</td>
+              <td style="padding: 8px 12px; border-bottom: 1px solid var(--border); font-family: monospace; font-size: 12px;">GetCloudAppUsageForUser</td>
+              <td style="padding: 8px 12px; border-bottom: 1px solid var(--border);">Defender CloudAppEvents</td>
+              <td style="padding: 8px 12px; border-bottom: 1px solid var(--border);">クラウドアプリ利用状況・外部ストレージサービスの利用検出</td>
+            </tr>
+            <tr style="background: #FAFAFA;">
+              <td style="padding: 8px 12px; font-weight: 600;">出力</td>
+              <td style="padding: 8px 12px; font-family: monospace; font-size: 12px;">（Agent による生成）</td>
+              <td style="padding: 8px 12px;">—</td>
+              <td style="padding: 8px 12px;">事実ベースの Markdown 行動調査レポートを生成</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Output Report Structure -->
+      <div style="margin-top: 24px;">
+        <div class="section-title" style="font-size: 15px; border-bottom: 1px solid var(--border);"><span>📄</span> レポート構成（Markdown 出力）</div>
+        <div style="margin-top: 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+          <div style="background: var(--bg); border: 1px solid var(--border); border-left: 3px solid var(--primary); border-radius: 0 var(--radius) var(--radius) 0; padding: 10px 16px;">
+            <div style="font-size: 12px; font-weight: 700; color: var(--text-secondary); margin-bottom: 2px;">Section 1</div>
+            <div style="font-size: 13px;">アラート情報サマリー</div>
+          </div>
+          <div style="background: var(--bg); border: 1px solid var(--border); border-left: 3px solid var(--primary); border-radius: 0 var(--radius) var(--radius) 0; padding: 10px 16px;">
+            <div style="font-size: 12px; font-weight: 700; color: var(--text-secondary); margin-bottom: 2px;">Section 2</div>
+            <div style="font-size: 13px;">Office/Teams アクティビティ概要</div>
+          </div>
+          <div style="background: var(--bg); border: 1px solid var(--border); border-left: 3px solid var(--primary); border-radius: 0 var(--radius) var(--radius) 0; padding: 10px 16px;">
+            <div style="font-size: 12px; font-weight: 700; color: var(--text-secondary); margin-bottom: 2px;">Section 3</div>
+            <div style="font-size: 13px;">メール送信パターン分析</div>
+          </div>
+          <div style="background: var(--bg); border: 1px solid var(--border); border-left: 3px solid var(--primary); border-radius: 0 var(--radius) var(--radius) 0; padding: 10px 16px;">
+            <div style="font-size: 12px; font-weight: 700; color: var(--text-secondary); margin-bottom: 2px;">Section 4</div>
+            <div style="font-size: 13px;">クラウドアプリ利用状況</div>
+          </div>
+          <div style="background: var(--bg); border: 1px solid var(--border); border-left: 3px solid var(--primary); border-radius: 0 var(--radius) var(--radius) 0; padding: 10px 16px;">
+            <div style="font-size: 12px; font-weight: 700; color: var(--text-secondary); margin-bottom: 2px;">Section 5</div>
+            <div style="font-size: 13px;">タイムライン（重要イベント）</div>
+          </div>
+          <div style="background: var(--bg); border: 1px solid var(--border); border-left: 3px solid #D13438; border-radius: 0 var(--radius) var(--radius) 0; padding: 10px 16px;">
+            <div style="font-size: 12px; font-weight: 700; color: var(--text-secondary); margin-bottom: 2px;">Section 6</div>
+            <div style="font-size: 13px;">調査所見と推奨アクション</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Notes -->
+      <div style="margin-top: 24px; background: #FFF4CE; border: 1px solid #FFD335; border-radius: var(--radius); padding: 16px 20px;">
+        <div style="font-weight: 700; font-size: 13px; margin-bottom: 8px;">⚠️ 注意事項</div>
+        <ul style="font-size: 13px; padding-left: 18px; color: var(--text);">
+          <li>KQL クエリはよく知られた Microsoft テーブルスキーマをもとに作成していますが、本番環境での動作確認を推奨します。</li>
+          <li>Sentinel の OfficeActivity テーブルには Microsoft 365 監査ログコネクタの有効化が必要です。</li>
+          <li>Defender EmailEvents・CloudAppEvents クエリは Microsoft Defender XDR Advanced Hunting の権限が必要です。</li>
+          <li>AlertDateTime が省略された場合、基準日は現在日時となり過去14日間が調査されます。</li>
+        </ul>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Footer -->
+  <div class="card-footer">
+    Generated by <strong>Security Copilot Custom Plugins Builder</strong>
+    &mdash; <a href="https://learn.microsoft.com/en-us/copilot/security/custom-plugins" target="_blank">Docs</a>
+  </div>
+
+</div>
+</body>
+</html>

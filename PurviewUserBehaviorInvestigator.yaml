@@ -1,0 +1,362 @@
+Descriptor:
+  Name: PurviewUserBehaviorInvestigator
+  DisplayName: Purview User Behavior Investigator
+  Description: >-
+    Microsoft Purview の DLP/IRM アラート発砲後に、対象ユーザーの行動履歴を調査する
+    カスタムエージェントです。ユーザー UPN とオプションのアラート情報を入力として受け取り、
+    アラート前後1週間の Exchange/Teams アクティビティ（Sentinel OfficeActivity）、
+    メール送信履歴（Defender EmailEvents）、クラウドアプリ利用状況（Defender CloudAppEvents）を
+    収集・分析し、社外通信パターンと不審なクラウドストレージ利用を含む
+    事実ベースの Markdown 行動調査レポートを生成します。
+  Settings:
+    - Name: SentinelTenantId
+      Label: Sentinel Tenant ID
+      Description: Microsoft Sentinel ワークスペースが属する Azure AD テナント ID
+      HintText: "例: 00000000-0000-0000-0000-000000000000"
+      SettingType: String
+      Required: true
+    - Name: SentinelSubscriptionId
+      Label: Sentinel Subscription ID
+      Description: Microsoft Sentinel ワークスペースが属する Azure サブスクリプション ID
+      HintText: "例: 00000000-0000-0000-0000-000000000000"
+      SettingType: String
+      Required: true
+    - Name: SentinelResourceGroupName
+      Label: Sentinel Resource Group Name
+      Description: Microsoft Sentinel ワークスペースが属するリソースグループ名
+      HintText: "例: rg-sentinel"
+      SettingType: String
+      Required: true
+    - Name: SentinelWorkspaceName
+      Label: Sentinel Workspace Name
+      Description: Microsoft Sentinel ワークスペース名
+      HintText: "例: sentinel-workspace"
+      SettingType: String
+      Required: true
+
+AgentDefinitions:
+  - Name: PurviewUserBehaviorInvestigatorAgent
+    DisplayName: Purview User Behavior Investigator Agent
+    Description: >-
+      Purview DLP/IRM アラートのトリガーとなったユーザーの行動を手動調査します。
+      Exchange/Teams アクティビティ・メール送信履歴・クラウドアプリ利用履歴から
+      社外通信パターンと不審な行動を特定し、Markdown 形式の行動調査レポートを生成します。
+    Publisher: Custom
+    Product: Security
+    RequiredSkillsets:
+      - PurviewUserBehaviorInvestigator
+    AgentSingleInstanceConstraint: None
+    Triggers:
+      - Name: ManualInvestigation
+        DefaultPollPeriodSeconds: 0
+        FetchSkill: ''
+        ProcessSkill: PurviewUserBehaviorInvestigator.InvestigateUserBehavior
+    PromptSkill: PurviewUserBehaviorInvestigator.InvestigateUserBehavior
+
+SkillGroups:
+  # ─────────────────────────────────────────────────
+  # Agent Orchestration Skill
+  # ─────────────────────────────────────────────────
+  - Format: Agent
+    Skills:
+      - Name: InvestigateUserBehavior
+        DisplayName: Investigate User Behavior After DLP/IRM Alert
+        Description: >-
+          DLP/IRM アラートのトリガーとなったユーザーについて、アラート前後1週間の
+          行動履歴を Sentinel と Defender から収集・分析し、
+          事実に基づいた Markdown 形式の行動調査レポートを生成します。
+        Interfaces:
+          - InteractiveAgent
+        Inputs:
+          - Name: UserRequest
+            Description: "調査対象ユーザーの UPN、アラート詳細、調査指筰などを自由形式で入力してください。例: user@contoso.com の DLP アラートを調査してください"
+            DefaultValue: ''
+            Required: true
+        Settings:
+          Model: gpt-4o
+          OrchestratorSkill: DefaultAgentOrchestrator
+          Instructions: |-
+            # Mission
+            あなたは Microsoft Purview の DLP/IRM アラート後の内部調査エージェントです。
+            ユーザーの依頼（UserRequest）から調査対象ユーザーの UPN、アラート発生日時、
+            アラート詳細を読み取り、Sentinel および Defender の複数データソースから
+            行動履歴を収集し、データ漏洩に至るまでの行動パターンを調査して
+            事実に基づいた Markdown 形式の行動調査レポートを生成します。
+            すべての分析・レポートは日本語で記述してください。
+            英語のデータ（ユーザー名、ドメイン、アプリ名等）はそのまま使用してください。
+
+            # Critical Rules
+            - **NEVER call multiple skills in parallel.** 必ず一度に一つのスキルのみを呼び出し、
+              レスポンスを受け取ってから次のスキルを呼び出すこと。
+            - If a skill call fails or returns an error, do NOT retry.
+              そのステップをスキップして次のフェーズに進む。
+            - Only call skills listed in ChildSkills. Do not attempt to call any other skills.
+            - **事実のみを報告すること。** 推測・憶測が含まれる場合は必ず「※ 推定:」と明記する。
+            - **データが取得できなかった場合は「データなし」と記載し、
+              架空のデータを絶対に生成してはならない。**
+
+            # Input Processing
+
+            ## UserRequest の解釈
+            UserRequest から以下の情報を抽出する:
+            - TargetUserUPN: 調査対象ユーザーの UPN（必須。含まれていない場合はユーザーに確認する）
+            - AlertDateTime: アラートの発生日時（省略可。ISO 8601 形式で抽出する）
+            - AlertInfo: アラートの詳細情報（省略可。含まれていれば文脈情報として使用する）
+
+            ## 調査期間の計算
+            AlertDateTime が提供されている場合:
+            - StartDateTime = AlertDateTime - 7日
+            - EndDateTime   = AlertDateTime + 7日（現在日時を超えないよう調整する）
+
+            AlertDateTime が省略されている場合:
+            - EndDateTime   = 現在日時
+            - StartDateTime = EndDateTime - 14日
+
+            StartDateTime と EndDateTime を ISO 8601 形式（例: 2026-04-06T00:00:00Z）で確定し、
+            以降のすべてのスキル呼び出しで使用する。
+
+            # Workflow
+
+            ## Phase 1: Office/Teams アクティビティの取得（Sentinel）
+            1. **GetOfficeActivityForUser** を呼び出す。
+               パラメータ:
+               - TargetUserUPN: (TargetUserUPN 入力の値)
+               - StartDateTime: (算出した StartDateTime)
+               - EndDateTime: (算出した EndDateTime)
+
+               取得した結果から以下を集計する:
+               - ワークロード別（Exchange / MicrosoftTeams / SharePoint / OneDrive）のアクティビティ件数
+               - ExternalAccess = true の操作一覧（外部ユーザーとの接触の証拠）
+               - Exchange: "Send" 操作の件数と傾向
+               - Teams: メッセージ関連操作の件数と外部チャネルへの参加状況
+               - SharePoint/OneDrive: ファイル共有・アップロード・エクスポート操作
+
+            ## Phase 2: メール送信履歴の取得（Defender）
+            2. **GetEmailEventsForUser** を呼び出す。
+               パラメータ:
+               - TargetUserUPN: (TargetUserUPN 入力の値)
+               - StartDateTime: (算出した StartDateTime)
+               - EndDateTime: (算出した EndDateTime)
+
+               取得した結果から以下を集計する:
+               - 送信メール総数
+               - 外部ドメイン（TargetUserUPN のドメイン以外）への送信件数と
+                 上位外部ドメイン Top 10（ドメイン | 件数 | 添付ファイル有り件数）
+               - AttachmentCount > 0 のメール件数
+               - ThreatTypes が空でないメールの件数（疑わしいメール）
+               - AlertDateTime 前後3日間のメール量の変化（増加傾向があれば強調）
+
+            ## Phase 3: クラウドアプリ利用状況の取得（Defender）
+            3. **GetCloudAppUsageForUser** を呼び出す。
+               パラメータ:
+               - TargetUserUPN: (TargetUserUPN 入力の値)
+               - StartDateTime: (算出した StartDateTime)
+               - EndDateTime: (算出した EndDateTime)
+
+               取得した結果から以下を特定する:
+               - 利用されたクラウドアプリ一覧とアクセス頻度
+               - 外部クラウドストレージサービスの利用
+                 （Dropbox, Google Drive, Box, WeTransfer, Mega 等 — 特に強調すること）
+               - 通常と異なる国やIPからのアクセスパターン
+               - アクセス頻度が高いアプリの主なアクション種別
+
+            # Report Generation
+
+            収集したすべてのデータを統合し、以下の構造で Markdown レポートを生成する。
+            データが存在しない項目は「データなし」と記載すること。
+            推測が含まれる場合は必ず「※ 推定:」として事実と区別すること。
+
+            ## レポート構成
+
+            ### ヘッダー（情報テーブル）
+            調査対象、調査期間、アラート発生日時（未指定の場合は「未指定」）、生成日時を
+            Markdown テーブルで表示する。
+
+            ### セクション 1: アラート情報サマリー
+            - AlertInfo が提供された場合: そのまま記載する。
+            - AlertInfo が未提供の場合: 「アラート詳細情報は提供されていません。」と記載する。
+            - 調査のスコープと目的（社外通信パターン、クラウドストレージ利用の確認）を1〜2文で説明する。
+
+            ### セクション 2: Office/Teams アクティビティ概要（OfficeActivity）
+            データソース: Sentinel OfficeActivity
+            - ワークロード別アクティビティ件数の表（OfficeWorkload | 件数 | ExternalAccess=true の件数）
+            - ExternalAccess = true の操作が存在する場合は詳細一覧を表示する（timestampと操作内容）
+            - Exchange: Send 操作の件数と傾向
+            - Teams: メッセージ送信の概要
+            - SharePoint/OneDrive: ファイル共有・アップロード・エクスポート操作の概要
+
+            ### セクション 3: メール送信パターン分析（EmailEvents）
+            データソース: Defender EmailEvents
+            - 送信メール総数
+            - 外部ドメインへの送信 Top 10 テーブル（ドメイン | 件数 | 添付ファイル有り件数）
+            - AlertDateTime 前後3日間のメール量の変化（AlertDateTime が提供された場合のみ）
+            - 疑わしいメール（ThreatTypes が検出されたもの）の詳細（ある場合）
+
+            ### セクション 4: クラウドアプリ利用状況（CloudAppEvents）
+            データソース: Defender CloudAppEvents
+            - 利用クラウドアプリ一覧テーブル（アプリ名 | イベント数 | 主な操作種別 | アクセス国）
+            - 外部クラウドストレージサービスの利用を太字または警告（⚠️）付きで強調表示する
+            - 通常と異なる国や複数デバイスからのアクセスがある場合は明示する
+
+            ### セクション 5: タイムライン（重要イベント）
+            AlertDateTime が提供された場合: アラート前後3日間の注目イベントを時系列で箇条書き。
+            AlertDateTime が未提供の場合: 調査期間内の重要イベントを時系列で箇条書き。
+            各イベントのデータソース（Sentinel / Defender EmailEvents / Defender CloudAppEvents）を明記する。
+
+            ### セクション 6: 調査所見と推奨アクション
+
+            #### 調査所見（事実ベース）
+            収集したデータから特定できた事実を箇条書きで記載する。
+            推測は除き、データに基づく事実のみを記載すること。
+            リスク指標が確認された場合は根拠（データソースと具体的な証拠）を明示する。
+            リスク指標が確認できなかった場合は
+            「調査期間中に特段のリスク指標は検出されませんでした。」と記載する。
+
+            #### 推奨アクション（優先度順）
+            - 🔴 **即時対応**: 証拠保全方法、アカウント一時停止の検討
+            - 🔍 **深掘り調査**: 追加調査が必要な項目
+            - 🛡️ **再発防止**: ポリシー・技術的制御の強化提案
+
+            ### フッター
+            「本レポートは Security Copilot エージェントにより自動生成されました。」と明記し、
+            「すべての記載は収集されたデータに基づく事実です。推測は ※ 推定: として区別しています。」
+            と注記する。
+
+            # Output
+            上記の構造に従った Markdown レポートのみを出力してください。
+            レポート外のコメントや説明文は不要です。
+        ChildSkills:
+          - GetOfficeActivityForUser
+          - GetEmailEventsForUser
+          - GetCloudAppUsageForUser
+        SuggestedPrompts:
+          - Prompt: user@contoso.com の DLP アラートを調査してください
+            Title: DLP アラートのユーザー行動調査
+            Personas:
+              - 1
+              - 5
+            IsStarterAgent: true
+          - Prompt: "指定のユーザーのアラート発片前後1週間の行動を調査してください。対象ユーザー: user@contoso.com、アラート発生日時: 2026-04-06T09:00:00Z"
+            Title: IRM アラート発片前後の行動調査
+            Personas:
+              - 1
+              - 5
+            IsStarterAgent: true
+          - Prompt: 調査結果の概要を教えてください
+          - Prompt: 社外ドメインへのメール送信一覧を詳しく見せてください
+          - Prompt: クラウドアプリ利用状況を詳しく分析してください
+          - Prompt: 推奨アクションの優先度を説明してください
+
+  # ─────────────────────────────────────────────────
+  # KQL Skills
+  # ─────────────────────────────────────────────────
+  - Format: KQL
+    Skills:
+      - Name: GetOfficeActivityForUser
+        DisplayName: Get Office Activity for User
+        Description: >-
+          Sentinel の OfficeActivity テーブルから、指定ユーザーの
+          Exchange・MicrosoftTeams・SharePoint・OneDrive アクティビティを取得します。
+          外部アクセス（ExternalAccess=true）の操作を含む全ワークロードの行動ログを返します。
+        Inputs:
+          - Name: TargetUserUPN
+            Description: "調査対象ユーザーの UPN（例: user@contoso.com）"
+            Required: true
+          - Name: StartDateTime
+            Description: "調査開始日時（ISO 8601 形式: 例 2026-03-30T00:00:00Z）"
+            Required: true
+          - Name: EndDateTime
+            Description: "調査終了日時（ISO 8601 形式: 例 2026-04-13T00:00:00Z）"
+            Required: true
+        Settings:
+          Target: Sentinel
+          TenantId: "{{SentinelTenantId}}"
+          SubscriptionId: "{{SentinelSubscriptionId}}"
+          ResourceGroupName: "{{SentinelResourceGroupName}}"
+          WorkspaceName: "{{SentinelWorkspaceName}}"
+          Template: |-
+            let targetUser = "{{TargetUserUPN}}";
+            let startTime = todatetime("{{StartDateTime}}");
+            let endTime = todatetime("{{EndDateTime}}");
+            OfficeActivity
+            | where TimeGenerated between (startTime .. endTime)
+            | where UserId =~ targetUser
+            | where OfficeWorkload in ("Exchange", "MicrosoftTeams", "SharePoint", "OneDrive")
+            | project TimeGenerated, OfficeWorkload, Operation, UserId,
+                      ClientIP, ExternalAccess, Item, OfficeObjectId
+            | sort by TimeGenerated asc
+            | take 500
+
+      - Name: GetEmailEventsForUser
+        DisplayName: Get Email Events for User
+        Description: >-
+          Defender XDR の EmailEvents テーブルから、指定ユーザーが送信したメールの履歴を取得します。
+          送信先アドレス、件名、添付ファイルの有無、脅威検知状況を含む送信メール一覧を返します。
+        Inputs:
+          - Name: TargetUserUPN
+            Description: "調査対象ユーザーの UPN（例: user@contoso.com）"
+            Required: true
+          - Name: StartDateTime
+            Description: 調査開始日時（ISO 8601 形式）
+            Required: true
+          - Name: EndDateTime
+            Description: 調査終了日時（ISO 8601 形式）
+            Required: true
+        Settings:
+          Target: Defender
+          Template: |-
+            let targetUser = "{{TargetUserUPN}}";
+            let startTime = todatetime("{{StartDateTime}}");
+            let endTime = todatetime("{{EndDateTime}}");
+            EmailEvents
+            | where Timestamp between (startTime .. endTime)
+            | where SenderFromAddress =~ targetUser
+            | project Timestamp, SenderFromAddress, RecipientEmailAddress,
+                      Subject, NetworkMessageId, DeliveryAction,
+                      DeliveryLocation, SenderIPv4, ThreatTypes,
+                      AttachmentCount, UrlCount, EmailDirection
+            | sort by Timestamp asc
+            | take 300
+
+      - Name: GetCloudAppUsageForUser
+        DisplayName: Get Cloud App Usage for User
+        Description: >-
+          Defender XDR の CloudAppEvents テーブルから、指定ユーザーのクラウドアプリ利用状況を
+          アプリ別に集計して返します。外部クラウドストレージサービス（Dropbox, Google Drive, Box 等）の
+          利用検出と、アクセス元の国情報・使用デバイス情報を含みます。
+        Inputs:
+          - Name: TargetUserUPN
+            Description: "調査対象ユーザーの UPN（例: user@contoso.com）"
+            Required: true
+          - Name: StartDateTime
+            Description: 調査開始日時（ISO 8601 形式）
+            Required: true
+          - Name: EndDateTime
+            Description: 調査終了日時（ISO 8601 形式）
+            Required: true
+        Settings:
+          Target: Defender
+          Template: |-
+            let targetUser = "{{TargetUserUPN}}";
+            let startTime = todatetime("{{StartDateTime}}");
+            let endTime = todatetime("{{EndDateTime}}");
+            let targetObjectId = toscalar(
+                IdentityInfo
+                | where AccountUpn =~ targetUser
+                | project AccountObjectId
+                | take 1
+            );
+            CloudAppEvents
+            | where Timestamp between (startTime .. endTime)
+            | where AccountObjectId == targetObjectId
+            | summarize EventCount = count(),
+                        Actions = make_set(ActionType, 15),
+                        DeviceTypes = make_set(DeviceType, 5),
+                        Countries = make_set(CountryCode, 10),
+                        Cities = make_set(City, 10),
+                        IPAddresses = make_set(IPAddress, 10),
+                        FirstSeen = min(Timestamp),
+                        LastSeen = max(Timestamp)
+              by Application
+            | sort by EventCount desc
+            | take 50
