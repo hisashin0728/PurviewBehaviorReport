@@ -5,8 +5,9 @@ Descriptor:
     Microsoft Purview の DLP/IRM アラート発砲後に、対象ユーザーの行動履歴を調査する
     カスタムエージェントです。ユーザー UPN とオプションのアラート情報を入力として受け取り、
     アラート前後1週間の Exchange/Teams アクティビティ（Sentinel OfficeActivity）、
-    メール送信履歴（Defender EmailEvents）、クラウドアプリ利用状況（Defender CloudAppEvents）を
-    収集・分析し、社外通信パターンと不審なクラウドストレージ利用を含む
+    メール送信履歴（Defender EmailEvents）、クラウドアプリ利用状況（Defender CloudAppEvents）、
+    USB デバイスの読み書き振る舞い（Defender DeviceEvents）を
+    収集・分析し、社外通信パターン・不審なクラウドストレージ利用・USB 持ち出し行為を含む
     事実ベースの Markdown 行動調査レポートを生成します。
   Settings:
     - Name: SentinelTenantId
@@ -39,8 +40,8 @@ AgentDefinitions:
     DisplayName: Purview User Behavior Investigator Agent
     Description: >-
       Purview DLP/IRM アラートのトリガーとなったユーザーの行動を手動調査します。
-      Exchange/Teams アクティビティ・メール送信履歴・クラウドアプリ利用履歴から
-      社外通信パターンと不審な行動を特定し、Markdown 形式の行動調査レポートを生成します。
+      Exchange/Teams アクティビティ・メール送信履歴・クラウドアプリ利用履歴・USB デバイスアクティビティから
+      社外通信パターン・不審な行動・USB 持ち出し行為を特定し、Markdown 形式の行動調査レポートを生成します。
     Publisher: Custom
     Product: Security
     RequiredSkillsets:
@@ -160,6 +161,25 @@ SkillGroups:
                - 通常と異なる国やIPからのアクセスパターン
                - アクセス頻度が高いアプリの主なアクション種別
 
+            ## Phase 4: USB デバイスアクティビティの取得（Defender）
+            4. **GetUSBDeviceActivityForUser** を呼び出す。
+               パラメータ:
+               - TargetUserUPN: (TargetUserUPN 入力の値)
+               - StartDateTime: (算出した StartDateTime)
+               - EndDateTime: (算出した EndDateTime)
+
+               取得した結果から以下を集計する:
+               - USB 接続イベント（PnPDeviceAllowed）の件数と接続デバイス一覧
+                 （MediaDescription、SerialNumber、VendorId/ProductId）
+               - USB 接続拒否（PnPDeviceBlocked）の件数
+               - リムーバブルストレージへの書き込みアクセス
+                 （ActionType = RemovableStoragePolicyTriggered かつ
+                  RemovableStorageAccess に "Write" を含むイベント）の件数
+               - リムーバブルストレージへの読み取りアクセス
+                 （RemovableStorageAccess に "Read" を含むイベント）の件数
+               - ポリシー判定（RemovableStoragePolicyVerdict）が "Deny" のイベント（ブロック）の件数
+               - AlertDateTime 前後3日間の USB アクティビティの変化（AlertDateTime 指定時）
+
             # Report Generation
 
             収集したすべてのデータを統合し、以下の構造で Markdown レポートを生成する。
@@ -198,12 +218,22 @@ SkillGroups:
             - 外部クラウドストレージサービスの利用を太字または警告（⚠️）付きで強調表示する
             - 通常と異なる国や複数デバイスからのアクセスがある場合は明示する
 
-            ### セクション 5: タイムライン（重要イベント）
+            ### セクション 5: USB デバイスアクティビティ（DeviceEvents）
+            データソース: Defender DeviceEvents
+            - USB 接続イベント一覧テーブル（日時 | デバイス名 | デバイス種別 | シリアル番号 | VID/PID）
+            - リムーバブルストレージへの書き込みアクセス件数と該当イベント一覧
+              （ActionType = RemovableStoragePolicyTriggered かつ Write アクセス）
+            - リムーバブルストレージへの読み取りアクセス件数
+            - ポリシーによりブロック（Deny）されたアクセスの件数（あれば詳細）
+            - DLP アラートとの時間的相関（AlertDateTime が指定された場合は前後 24 時間の USB 操作を強調）
+            - USB 書き込みアクセスが確認された場合は ⚠️ で警告表示する
+
+            ### セクション 6: タイムライン（重要イベント）
             AlertDateTime が提供された場合: アラート前後3日間の注目イベントを時系列で箇条書き。
             AlertDateTime が未提供の場合: 調査期間内の重要イベントを時系列で箇条書き。
-            各イベントのデータソース（Sentinel / Defender EmailEvents / Defender CloudAppEvents）を明記する。
+            各イベントのデータソース（Sentinel / Defender EmailEvents / Defender CloudAppEvents / Defender DeviceEvents）を明記する。
 
-            ### セクション 6: 調査所見と推奨アクション
+            ### セクション 7: 調査所見と推奨アクション
 
             #### 調査所見（事実ベース）
             収集したデータから特定できた事実を箇条書きで記載する。
@@ -229,6 +259,7 @@ SkillGroups:
           - GetOfficeActivityForUser
           - GetEmailEventsForUser
           - GetCloudAppUsageForUser
+          - GetUSBDeviceActivityForUser
         SuggestedPrompts:
           - Prompt: user@contoso.com の DLP アラートを調査してください
             Title: DLP アラートのユーザー行動調査
@@ -360,3 +391,54 @@ SkillGroups:
               by Application
             | sort by EventCount desc
             | take 50
+
+      - Name: GetUSBDeviceActivityForUser
+        DisplayName: Get USB Device Activity for User
+        Description: >-
+          Defender XDR の DeviceEvents テーブルから、指定ユーザーに関連する
+          USB リムーバブルストレージの読み書きアクセスイベントを取得します。
+          デバイス制御ポリシーのトリガー（RemovableStoragePolicyTriggered）および
+          USB 接続イベント（PnPDeviceAllowed / PnPDeviceBlocked）を返します。
+          AdditionalFields から アクセス種別（読み取り/書き込み）、ポリシー判定（許可/拒否）、
+          シリアル番号、ベンダー ID/製品 ID を展開して含みます。
+        Inputs:
+          - Name: TargetUserUPN
+            Description: "調査対象ユーザーの UPN（例: user@contoso.com）"
+            Required: true
+          - Name: StartDateTime
+            Description: 調査開始日時（ISO 8601 形式）
+            Required: true
+          - Name: EndDateTime
+            Description: 調査終了日時（ISO 8601 形式）
+            Required: true
+        Settings:
+          Target: Defender
+          Template: |-
+            let targetUser = "{{TargetUserUPN}}";
+            let startTime = todatetime("{{StartDateTime}}");
+            let endTime = todatetime("{{EndDateTime}}");
+            DeviceEvents
+            | where Timestamp between (startTime .. endTime)
+            | where InitiatingProcessAccountUpn =~ targetUser
+            | where ActionType in (
+                "RemovableStoragePolicyTriggered",
+                "PnPDeviceAllowed",
+                "PnPDeviceBlocked"
+              )
+            | extend parsed = parse_json(AdditionalFields)
+            | extend MediaDescription           = tostring(parsed.DeviceDescription)
+            | extend SerialNumber               = tostring(parsed.SerialNumber)
+            | extend RemovableStorageAccess     = tostring(parsed.RemovableStorageAccess)
+            | extend RemovableStoragePolicyVerdict = tostring(parsed.RemovableStoragePolicyVerdict)
+            | extend RemovableStoragePolicy     = tostring(parsed.RemovableStoragePolicy)
+            | extend VendorId                   = tostring(parsed.VendorId)
+            | extend ProductId                  = tostring(parsed.ProductId)
+            | extend DeviceInstanceId           = tostring(parsed.DeviceInstanceId)
+            | extend MediaClassName             = tostring(parsed.ClassName)
+            | project Timestamp, DeviceName, ActionType,
+                      MediaDescription, SerialNumber,
+                      RemovableStorageAccess, RemovableStoragePolicyVerdict, RemovableStoragePolicy,
+                      VendorId, ProductId, DeviceInstanceId, MediaClassName,
+                      InitiatingProcessAccountUpn, InitiatingProcessFileName
+            | sort by Timestamp asc
+            | take 200
